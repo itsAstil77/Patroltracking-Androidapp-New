@@ -1,0 +1,89 @@
+name: patroltracking
+description: "An application to track the locations, details of the patrols."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.6.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  shared_preferences: ^2.5.2
+  intl: ^0.20.2
+  http: ^1.3.0
+    
+  google_maps_flutter: ^2.10.1
+  geolocator: ^13.0.2
+  location: ^8.0.0
+  flutter_polyline_points: ^2.1.0
+    
+  image_picker: ^1.1.2
+  camera: ^0.11.1
+  video_player: ^2.9.5
+  chewie: ^1.11.1
+    
+  flutter_sound: ^9.28.0
+  record: ^6.0.0
+  audioplayers: ^6.4.0
+    
+  # Storage & File handling
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.5
+  file_picker: ^10.1.2
+  sqflite: ^2.3.0
+    
+  # UI & UX
+  signature: ^5.5.0
+  fluttertoast: ^8.2.12
+    
+  # Scanner & NFC
+  mobile_scanner: ^6.0.7
+  nfc_manager: ^3.5.0
+    
+  # Device & Network info
+  device_info_plus: ^11.3.0
+  network_info_plus: ^6.1.4
+  connectivity_plus: ^5.0.2
+      
+  # Permissions
+  permission_handler: ^11.4.0
+    
+  # Background tasks
+  workmanager:
+    git:
+      url: https://github.com/fluttercommunity/flutter_workmanager.git
+      path: workmanager
+      ref: main
+    
+  # Reactive programming
+  rxdart: ^0.27.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  hive_generator: ^2.0.1
+  build_runner: ^2.4.6
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/
+    - assets/font/
+    - assets/Patrols/
+
+  fonts:
+    - family: RedHatDisplay
+      fonts:
+        - asset: assets/font/RedHatDisplay-Black.ttf
+          weight: 900
+        - asset: assets/font/RedHatDisplay-Bold.ttf
+          weight: 700
+        - asset: assets/font/RedHatDisplay-Medium.ttf
+          weight: 500
+        - asset: assets/font/RedHatDisplay-Regular.ttf
+          weight: 400
