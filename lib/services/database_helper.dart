@@ -25,7 +25,7 @@ class DatabaseHelper {
     return await openDatabase(
       path,
       version: 9, 
-      onCreate: _onCreate,
+      onCreate: _onCreate, 
       onUpgrade: _onUpgrade,
     );
   }
@@ -218,6 +218,7 @@ class DatabaseHelper {
     if (oldVersion < 9) { 
       await db.execute('ALTER TABLE scans ADD COLUMN scannedLocationCode TEXT');
     }
+    
   }
 
   Future<int> insertWorkflow(Map<String, dynamic> workflow) async {

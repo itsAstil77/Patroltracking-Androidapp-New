@@ -50,10 +50,7 @@ class CustomDrawer extends StatelessWidget {
             ),
           ),
           _buildDrawerItem(context, Icons.dashboard, 'Dashboard', () {
-            _safeNavigate(
-              context,
-              PatrolDashboardScreen(userdata: userdata, token: token),
-            );
+            _safeNavigateToDashboard(context);
           }),
           _buildDrawerItem(context, Icons.perm_media, 'Multimedia', () {
             _safeNavigate(
@@ -102,10 +99,29 @@ class CustomDrawer extends StatelessWidget {
     );
   }
 
+  void _safeNavigateToDashboard(BuildContext context) {
+    try {
+      Navigator.pop(context); // Close drawer
+      // Check if we're already on dashboard to avoid duplicates
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PatrolDashboardScreen(userdata: userdata, token: token),
+        ),
+        (route) => route.isFirst, // Keep only the first route (login/splash)
+      );
+    } catch (e) {
+      print("Navigation error: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to open screen.')),
+      );
+    }
+  }
+
   void _safeNavigate(BuildContext context, Widget screen) {
     try {
-      Navigator.pop(context); 
-      Navigator.pushReplacement(
+      Navigator.pop(context); // Close drawer
+      Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => screen),
       );
@@ -131,9 +147,10 @@ class CustomDrawer extends StatelessWidget {
             ),
             TextButton(
               onPressed: () {
-                Navigator.pushReplacement(
+                Navigator.pushAndRemoveUntil(
                   context,
                   MaterialPageRoute(builder: (context) => const LoginScreen()),
+                  (route) => false, // Remove all routes
                 );
               },
               child: const Text('Logout'),
@@ -144,4 +161,3 @@ class CustomDrawer extends StatelessWidget {
     );
   }
 }
-
