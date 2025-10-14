@@ -73,7 +73,6 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
     await _loadChecklists();
   }
 
-
   @override
   void dispose() {
     _connectivitySubscription?.cancel();
@@ -135,9 +134,7 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
     }
   }
 
-  
-
- Future<void> _loadChecklists() async {
+  Future<void> _loadChecklists() async {
     if (mounted) {
       setState(() => _isLoading = true);
     }
@@ -159,9 +156,29 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
         debugPrint('Fetched ${checklists.length} checklists offline');
       }
 
+      // Get ACTUAL multimedia status from database
+      final db = await DatabaseHelper().database;
+      final multimediaStatus = <String, bool>{};
+      
+      for (var checklist in checklists) {
+        final checklistId = checklist['checklistId'];
+        if (checklistId != null) {
+          // Check if multimedia exists in database for this checklist
+          final multimediaResult = await db.query(
+            'multimedia',
+            where: 'checklistId = ?',
+            whereArgs: [checklistId],
+            limit: 1,
+          );
+          multimediaStatus[checklistId] = multimediaResult.isNotEmpty;
+          debugPrint('Checklist $checklistId multimedia status: ${multimediaResult.isNotEmpty}');
+        }
+      }
+
       if (mounted) {
         setState(() {
           _allChecklists = checklists.map((checklist) {
+            final checklistId = checklist['checklistId'];
             final locationCodeRaw = checklist['locationCode'];
             dynamic locationCode;
             if (locationCodeRaw is String) {
@@ -173,11 +190,35 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
             } else {
               locationCode = locationCodeRaw ?? '';
             }
+            
+            // Use ACTUAL multimedia status from database
+            final hasMultimedia = multimediaStatus[checklistId] ?? false;
+
             return {
               ...checklist,
               'locationCode': locationCode,
+              'multimediaUploaded': hasMultimedia, 
             };
           }).toList();
+          
+          _allChecklists.sort((a, b) {
+            final aCompleted = a['status'] == 'completed';
+            final bCompleted = b['status'] == 'completed';
+            if (aCompleted != bCompleted) {
+              return aCompleted ? 1 : -1;
+            }
+            
+            final aScanned = a['status'] == 'scanned' || a['scanStartDate'] != null;
+            final bScanned = b['status'] == 'scanned' || b['scanStartDate'] != null;
+            if (aScanned != bScanned) {
+              return aScanned ? -1 : 1;
+            }
+            
+            final aTitle = a['title']?.toString() ?? '';
+            final bTitle = b['title']?.toString() ?? '';
+            return aTitle.compareTo(bTitle);
+          });
+          
           _filteredChecklists = List.from(_allChecklists);
           _selectedChecklists.clear();
           for (var item in _allChecklists) {
@@ -192,37 +233,6 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
         _showSnackbar("Error loading checklists: ${e.toString()}");
-        final offlineChecklists = await _offlineService.getValidOfflineChecklists(
-          widget.eventId, 
-          scheduledDate: widget.scheduledDate
-        );
-        if (offlineChecklists.isNotEmpty) {
-          setState(() {
-            _allChecklists = offlineChecklists.map((checklist) {
-              final locationCodeRaw = checklist['locationCode'];
-              dynamic locationCode;
-              if (locationCodeRaw is String) {
-                try {
-                  locationCode = jsonDecode(locationCodeRaw);
-                } catch (e) {
-                  locationCode = locationCodeRaw;
-                }
-              } else {
-                locationCode = locationCodeRaw ?? '';
-              }
-              return {
-                ...checklist,
-                'locationCode': locationCode,
-              };
-            }).toList();
-            _filteredChecklists = List.from(_allChecklists);
-            _selectedChecklists.clear();
-            for (var item in _allChecklists) {
-              _selectedChecklists[item['checklistId']] = item['status'] == 'completed';
-            }
-            _isLoading = false;
-          });
-        }
       }
     }
   }
@@ -426,61 +436,60 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
     }
   }
 
-  
-
   Future<void> _updateChecklist(String checklistId) async {
-  try {
-    final checklist = _allChecklists.firstWhere(
-      (c) => c['checklistId'] == checklistId,
-      orElse: () => throw Exception('Checklist not found'),
-    );
+    try {
+      final checklist = _allChecklists.firstWhere(
+        (c) => c['checklistId'] == checklistId,
+        orElse: () => throw Exception('Checklist not found'),
+      );
 
-    if (checklist['status'] != 'scanned' && checklist['scanStartDate'] == null) {
-      _showSnackbar("Checklist must be scanned first");
-      return;
+      if (checklist['status'] != 'scanned' && checklist['scanStartDate'] == null) {
+        _showSnackbar("Checklist must be scanned first");
+        return;
+      }
+
+      if (checklist['status'] == 'completed') {
+        _showSnackbar("Checklist already completed");
+        return;
+      }
+
+      final completionTime = DateTime.now().toUtc();
+
+      final message = await ApiService.updateScanEndTime(
+        checklistId,
+        widget.token,
+        endTime: completionTime.toIso8601String(),
+      );
+
+      if (mounted) {
+        setState(() {
+          final index = _filteredChecklists.indexWhere((c) => c['checklistId'] == checklistId);
+          if (index != -1) {
+            _filteredChecklists[index]['status'] = 'completed';
+            _filteredChecklists[index]['scanEndDate'] = completionTime.toIso8601String();
+            _selectedChecklists[checklistId] = true;
+          }
+          final allIndex = _allChecklists.indexWhere((c) => c['checklistId'] == checklistId);
+          if (allIndex != -1) {
+            _allChecklists[allIndex]['status'] = 'completed';
+            _allChecklists[allIndex]['scanEndDate'] = completionTime.toIso8601String();
+          }
+        });
+      }
+
+      await _offlineService.updateChecklistOffline(
+        checklistId,
+        'completed',
+        completionTime: completionTime,
+      );
+
+      _showSnackbar(message ?? "Checklist completed successfully");
+    } catch (e) {
+      debugPrint("Checklist update failed: $e");
+      _showSnackbar("Checklist completed ");
     }
-
-    if (checklist['status'] == 'completed') {
-      _showSnackbar("Checklist already completed");
-      return;
-    }
-
-    final completionTime = DateTime.now().toUtc();
-
-    final message = await ApiService.updateScanEndTime(
-      checklistId,
-      widget.token,
-      endTime: completionTime.toIso8601String(),
-    );
-
-    if (mounted) {
-      setState(() {
-        final index = _filteredChecklists.indexWhere((c) => c['checklistId'] == checklistId);
-        if (index != -1) {
-          _filteredChecklists[index]['status'] = 'completed';
-          _filteredChecklists[index]['scanEndDate'] = completionTime.toIso8601String();
-          _selectedChecklists[checklistId] = true;
-        }
-        final allIndex = _allChecklists.indexWhere((c) => c['checklistId'] == checklistId);
-        if (allIndex != -1) {
-          _allChecklists[allIndex]['status'] = 'completed';
-          _allChecklists[allIndex]['scanEndDate'] = completionTime.toIso8601String();
-        }
-      });
-    }
-
-    await _offlineService.updateChecklistOffline(
-      checklistId,
-      'completed',
-      completionTime: completionTime,
-    );
-
-    _showSnackbar(message ?? "Checklist completed successfully");
-  } catch (e) {
-    debugPrint("Checklist update failed: $e");
-    _showSnackbar("Checklist completed ");
   }
-}
+
   void _navigateBackToDashboard() {
     Navigator.pushReplacement(
       context,
@@ -504,11 +513,11 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
   Widget _buildChecklistItem(Map<String, dynamic> checklist) {
     final checklistId = checklist['checklistId'] ?? '';
     final title = checklist['title'] ?? '';
-    final isScanned =
-        checklist['status'] == 'scanned' || checklist['scanStartDate'] != null;
+    final isScanned = checklist['status'] == 'scanned' || checklist['scanStartDate'] != null;
     final isCompleted = checklist['status'] == 'completed';
-    final locationCode = checklist['locationCode'] ?? '';
-    final scanStartDate = checklist['scanStartDate'];
+    
+    // Use the actual multimedia status from the checklist data
+    final hasMultimediaUploaded = checklist['multimediaUploaded'] == true;
 
     return Card(
       elevation: 2,
@@ -529,11 +538,15 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
                     title,
                     style: AppConstants.normalPurpleFontStyle,
                   ),
-                  if (scanStartDate != null)
+                  if (checklist['scanStartDate'] != null)
                     Text(
-                      "Scanned at: ${DateTime.parse(scanStartDate).toLocal()}",
-                      style: AppConstants.normalPurpleFontStyle
-                          .copyWith(fontSize: 12),
+                      "Scanned at: ${DateTime.parse(checklist['scanStartDate']).toLocal()}",
+                      style: AppConstants.normalPurpleFontStyle.copyWith(fontSize: 12),
+                    ),
+                  if (hasMultimediaUploaded)
+                    Text(
+                      "Multimedia uploaded",
+                      style: AppConstants.normalPurpleFontStyle.copyWith(fontSize: 12, color: Colors.green),
                     ),
                 ],
               ),
@@ -548,10 +561,9 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
             IconButton(
               icon: Icon(
                 Icons.perm_media,
-                color: !isCompleted ? AppConstants.primaryColor : Colors.grey,
+                color: !hasMultimediaUploaded ? AppConstants.primaryColor : Colors.grey,
               ),
-              onPressed:
-                  !isCompleted ? () => _addMultimedia(checklistId) : null,
+              onPressed: !hasMultimediaUploaded ? () => _addMultimedia(checklistId) : null,
             ),
             if (_isOnline) 
               IconButton(
@@ -611,6 +623,19 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
   }
 
   void _addMultimedia(String checklistId) async {
+    // Check if multimedia already exists to prevent duplicates
+    final db = await DatabaseHelper().database;
+    final existingMultimedia = await db.query(
+      'multimedia',
+      where: 'checklistId = ?',
+      whereArgs: [checklistId],
+    );
+    
+    if (existingMultimedia.isNotEmpty && !_isOnline) {
+      _showSnackbar("Multimedia already added for this checklist");
+      return;
+    }
+
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -624,12 +649,67 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
     );
 
     if (result == true && mounted) {
+      // Force reload the multimedia status from database
+      await _updateMultimediaStatusInOfflineStorage(checklistId);
+      
+      // Also reload checklists to ensure consistency
+      await _loadChecklists();
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
             content: Text(_isOnline
                 ? "Multimedia uploaded"
                 : "Multimedia saved offline")),
       );
+    }
+  }
+
+  Future<void> _updateMultimediaStatusInOfflineStorage(String checklistId) async {
+    try {
+      final db = await DatabaseHelper().database;
+      
+      // First, verify multimedia actually exists
+      final multimediaResult = await db.query(
+        'multimedia',
+        where: 'checklistId = ?',
+        whereArgs: [checklistId],
+      );
+      
+      if (multimediaResult.isEmpty) {
+        debugPrint('No multimedia found for checklist $checklistId');
+        return;
+      }
+
+      // Update the checklist multimedia status
+      await db.update(
+        'checklists',
+        {
+          'multimediaUploaded': 1,
+          'modifiedAt': DateTime.now().toUtc().toIso8601String(),
+        },
+        where: 'checklistId = ?',
+        whereArgs: [checklistId],
+      );
+      
+      // Update local state
+      if (mounted) {
+        setState(() {
+          for (var checklist in _filteredChecklists) {
+            if (checklist['checklistId'] == checklistId) {
+              checklist['multimediaUploaded'] = true;
+            }
+          }
+          for (var checklist in _allChecklists) {
+            if (checklist['checklistId'] == checklistId) {
+              checklist['multimediaUploaded'] = true;
+            }
+          }
+        });
+      }
+      
+      debugPrint('Multimedia status updated for checklist $checklistId');
+    } catch (e) {
+      debugPrint('Error updating multimedia status: $e');
     }
   }
 
@@ -657,107 +737,106 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
     );
   }
 
-
-@override
-Widget build(BuildContext context) {
-  return Scaffold(
-    appBar: AppBar(
-      title: Text(
-        widget.scheduledDate != null
-            ? '${widget.eventtitle} (${widget.scheduledDate})'
-            : widget.eventtitle,
-        style: AppConstants.headingStyle,
-      ),
-      leading: IconButton(
-        icon: Icon(Icons.arrow_back, color: AppConstants.primaryColor),
-        onPressed: () => _navigateBackToDashboard(),
-      ),
-      actions: [
-        if (!_isOnline)
-          const Padding(
-            padding: EdgeInsets.only(right: 8.0),
-            child: Icon(Icons.wifi_off, color: Colors.orange),
-          ),
-        IconButton(
-          icon: const Icon(Icons.refresh, color: Colors.green),
-          tooltip: "Refresh Checklists",
-          onPressed: () async {
-            await _loadChecklists(); 
-          },
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          widget.scheduledDate != null
+              ? '${widget.eventtitle} (${widget.scheduledDate})'
+              : widget.eventtitle,
+          style: AppConstants.headingStyle,
         ),
-      ],
-    ),
-    body: _isLoading
-        ? const Center(child: CircularProgressIndicator())
-        : RefreshIndicator(
-            onRefresh: _loadChecklists,
-            child: Column(
-              children: [
-                if (!_isOnline)
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    color: Colors.orange.withOpacity(0.2),
-                    child: Row(
-                      children: const [
-                        Icon(Icons.info, color: Colors.orange),
-                        SizedBox(width: 8),
-                        Text(
-                          'Working offline - changes will sync when online',
-                          style: TextStyle(color: Colors.orange),
-                        ),
-                      ],
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: AppConstants.primaryColor),
+          onPressed: () => _navigateBackToDashboard(),
+        ),
+        actions: [
+          if (!_isOnline)
+            const Padding(
+              padding: EdgeInsets.only(right: 8.0),
+              child: Icon(Icons.wifi_off, color: Colors.orange),
+            ),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.green),
+            tooltip: "Refresh Checklists",
+            onPressed: () async {
+              await _loadChecklists(); 
+            },
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadChecklists,
+              child: Column(
+                children: [
+                  if (!_isOnline)
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      color: Colors.orange.withOpacity(0.2),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.info, color: Colors.orange),
+                          SizedBox(width: 8),
+                          Text(
+                            'Working offline - changes will sync when online',
+                            style: TextStyle(color: Colors.orange),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      labelText: "Search Checklist",
-                      prefixIcon: Icon(Icons.search,
-                          color: AppConstants.primaryColor),
-                      border: const OutlineInputBorder(),
-                    ),
-                    onChanged: _filterChecklists,
-                  ),
-                ),
-                Expanded(
-                  child: _allChecklists.isEmpty
-                      ? _buildEmptyState()
-                      : _filteredChecklists.isEmpty
-                          ? Center(
-                              child: Text(
-                                "No matching checklists found",
-                                style: AppConstants.normalPurpleFontStyle,
-                              ),
-                            )
-                          : ListView.builder(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 16),
-                              itemCount: _filteredChecklists.length,
-                              itemBuilder: (context, index) =>
-                                  _buildChecklistItem(
-                                      _filteredChecklists[index]),
-                            ),
-                ),
-                if (_isOnline) 
                   Padding(
                     padding: const EdgeInsets.all(16.0),
-                    child: ElevatedButton.icon(
-                      icon: Icon(Icons.send, color: AppConstants.primaryColor),
-                      label: Text(
-                        "Submit Checklists",
-                        style: AppConstants.selectedButtonFontStyle,
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        labelText: "Search Checklist",
+                        prefixIcon: Icon(Icons.search,
+                            color: AppConstants.primaryColor),
+                        border: const OutlineInputBorder(),
                       ),
-                      onPressed: _sendChecklists,
-                      style: ElevatedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 50),
-                      ),
+                      onChanged: _filterChecklists,
                     ),
                   ),
-              ],
+                  Expanded(
+                    child: _allChecklists.isEmpty
+                        ? _buildEmptyState()
+                        : _filteredChecklists.isEmpty
+                            ? Center(
+                                child: Text(
+                                  "No matching checklists found",
+                                  style: AppConstants.normalPurpleFontStyle,
+                                ),
+                              )
+                            : ListView.builder(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                itemCount: _filteredChecklists.length,
+                                itemBuilder: (context, index) =>
+                                    _buildChecklistItem(
+                                        _filteredChecklists[index]),
+                              ),
+                  ),
+                  if (_isOnline) 
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: ElevatedButton.icon(
+                        icon: Icon(Icons.send, color: AppConstants.primaryColor),
+                        label: Text(
+                          "Submit Checklists",
+                          style: AppConstants.selectedButtonFontStyle,
+                        ),
+                        onPressed: _sendChecklists,
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 50),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
-  );
-}
+    );
+  }
 }

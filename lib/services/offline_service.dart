@@ -50,6 +50,7 @@ class OfflineService {
               'locationCode': locationCode,
               'scheduledDate': workflow.scheduledDate,
               'isActive': checklist.isActive ? 1 : 0,
+              'multimediaUploaded': 0, // Initialize as 0
               'isSynced': 1,
               'isOffline': 0,
               'createdAt': DateTime.now().toUtc().toIso8601String(),
@@ -296,7 +297,7 @@ class OfflineService {
       'checklists',
       where: whereClause,
       whereArgs: whereArgs,
-      orderBy: 'createdAt DESC',
+      orderBy: 'status ASC, scanStartDate DESC, title ASC', 
     );
 
     return checklists.map((checklist) {
@@ -333,6 +334,16 @@ class OfflineService {
               ? jsonEncode(checklist['locationCode'])
               : checklist['locationCode']?.toString() ?? '';
 
+          // Check if multimedia exists in database for this checklist
+          final multimediaResult = await txn.query(
+            'multimedia',
+            where: 'checklistId = ?',
+            whereArgs: [checklist['checklistId']],
+            limit: 1,
+          );
+          
+          final hasMultimedia = multimediaResult.isNotEmpty;
+
           await txn.update(
             'checklists',
             {
@@ -340,6 +351,7 @@ class OfflineService {
               'scanStartDate': checklist['scanStartDate'],
               'scanEndDate': checklist['scanEndDate'],
               'locationCode': locationCode,
+              'multimediaUploaded': hasMultimedia ? 1 : 0,
               'isSynced': 1,
               'isOffline': 0,
               'syncedAt': DateTime.now().toUtc().toIso8601String(),
@@ -413,7 +425,7 @@ class OfflineService {
       'checklistId': checklistId,
       'scanType': scanType,
       'coordinates': coordinates,
-      'scannedLocationCode':scannedLocationCode,
+      'scannedLocationCode': scannedLocationCode,
       'isSynced': 0,
       'createdAt': DateTime.now().toUtc().toIso8601String(),
     });
@@ -461,5 +473,21 @@ class OfflineService {
       'isSynced': 0,
       'createdAt': DateTime.now().toUtc().toIso8601String(),
     });
+  }
+
+  
+
+  // New method to update multimedia status for a checklist
+  Future<void> updateChecklistMultimediaStatus(String checklistId, bool hasMultimedia) async {
+    final db = await _dbHelper.database;
+    await db.update(
+      'checklists',
+      {
+        'multimediaUploaded': hasMultimedia ? 1 : 0,
+        'modifiedAt': DateTime.now().toUtc().toIso8601String(),
+      },
+      where: 'checklistId = ?',
+      whereArgs: [checklistId],
+    );
   }
 }

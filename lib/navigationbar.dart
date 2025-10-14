@@ -7,6 +7,7 @@ import 'package:patroltracking/patrol/patrolMultimediaScreen.dart';
 import 'package:patroltracking/patrol/patroldashboard.dart';
 import 'package:patroltracking/profile.dart';
 import 'package:patroltracking/settings.dart';
+import 'package:patroltracking/services/database_inspector_screen.dart';
 
 class CustomDrawer extends StatelessWidget {
   final Map<String, dynamic> userdata;
@@ -81,6 +82,16 @@ class CustomDrawer extends StatelessWidget {
               SettingsScreen(userdata: userdata, token: token),
             );
           }),
+          // Add Database Inspector to drawer
+          _buildDrawerItem(context, Icons.storage, 'Database Inspector', () {
+            _safeNavigate(
+              context,
+              DatabaseInspectorScreen(
+                token: token,
+                userdata: userdata,
+              ),
+            );
+          }),
           _buildDrawerItem(context, Icons.power_settings_new_outlined, 'Logout',
               () {
             _showLogoutConfirmationDialog(context);
@@ -101,14 +112,13 @@ class CustomDrawer extends StatelessWidget {
 
   void _safeNavigateToDashboard(BuildContext context) {
     try {
-      Navigator.pop(context); // Close drawer
-      // Check if we're already on dashboard to avoid duplicates
+      Navigator.pop(context); 
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
           builder: (context) => PatrolDashboardScreen(userdata: userdata, token: token),
         ),
-        (route) => route.isFirst, // Keep only the first route (login/splash)
+        (route) => route.isFirst, 
       );
     } catch (e) {
       print("Navigation error: $e");
@@ -120,7 +130,7 @@ class CustomDrawer extends StatelessWidget {
 
   void _safeNavigate(BuildContext context, Widget screen) {
     try {
-      Navigator.pop(context); // Close drawer
+      Navigator.pop(context); 
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => screen),
@@ -150,7 +160,7 @@ class CustomDrawer extends StatelessWidget {
                 Navigator.pushAndRemoveUntil(
                   context,
                   MaterialPageRoute(builder: (context) => const LoginScreen()),
-                  (route) => false, // Remove all routes
+                  (route) => false, 
                 );
               },
               child: const Text('Logout'),

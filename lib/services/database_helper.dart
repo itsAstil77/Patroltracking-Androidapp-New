@@ -68,6 +68,7 @@ class DatabaseHelper {
       locationCode TEXT,
       isActive INTEGER DEFAULT 1,
       isSynced INTEGER DEFAULT 0,
+      multimediaUploaded INTEGER DEFAULT 0,
       syncAttempts INTEGER DEFAULT 0,
       lastSyncAttempt TEXT,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -218,9 +219,101 @@ class DatabaseHelper {
     if (oldVersion < 9) { 
       await db.execute('ALTER TABLE scans ADD COLUMN scannedLocationCode TEXT');
     }
-    
   }
 
+  // Database Inspection Methods
+  Future<Map<String, List<Map<String, dynamic>>>> getAllData() async {
+    final db = await database;
+    
+    final tables = [
+      'workflows', 
+      'checklists', 
+      'scans', 
+      'incidents', 
+      'sos', 
+      'multimedia', 
+      'signatures'
+    ];
+    
+    Map<String, List<Map<String, dynamic>>> allData = {};
+    
+    for (final table in tables) {
+      final data = await db.query(table);
+      allData[table] = data;
+    }
+    
+    return allData;
+  }
+
+  Future<void> printAllData() async {
+    final allData = await getAllData();
+    
+    for (final entry in allData.entries) {
+      debugPrint('=== ${entry.key.toUpperCase()} TABLE ===');
+      if (entry.value.isEmpty) {
+        debugPrint('No data found');
+      } else {
+        for (final row in entry.value) {
+          debugPrint(row.toString());
+        }
+      }
+      debugPrint(''); // Empty line for separation
+    }
+  }
+
+  Future<void> printTableStats() async {
+    final db = await database;
+    final tables = [
+      'workflows', 
+      'checklists', 
+      'scans', 
+      'incidents', 
+      'sos', 
+      'multimedia', 
+      'signatures'
+    ];
+    
+    debugPrint('=== DATABASE STATISTICS ===');
+    for (final table in tables) {
+      final countResult = await db.rawQuery('SELECT COUNT(*) as count FROM $table');
+      final count = countResult.first['count'] as int;
+      
+      final pendingResult = await db.rawQuery('SELECT COUNT(*) as count FROM $table WHERE isSynced = 0');
+      final pending = pendingResult.first['count'] as int;
+      
+      debugPrint('$table: $count total, $pending pending sync');
+    }
+  }
+
+  Future<void> exportDatabaseToFile() async {
+    final allData = await getAllData();
+    
+    final StringBuffer sb = StringBuffer();
+    sb.writeln('=== PATROL TRACKING DATABASE EXPORT ===');
+    sb.writeln('Export Time: ${DateTime.now()}');
+    sb.writeln();
+    
+    for (final entry in allData.entries) {
+      sb.writeln('--- ${entry.key.toUpperCase()} ---');
+      if (entry.value.isEmpty) {
+        sb.writeln('No records');
+      } else {
+        for (final record in entry.value) {
+          sb.writeln(record.toString());
+        }
+      }
+      sb.writeln();
+    }
+    
+    // Save to documents directory
+    final Directory documentsDir = await getApplicationDocumentsDirectory();
+    final File file = File('${documentsDir.path}/database_export_${DateTime.now().millisecondsSinceEpoch}.txt');
+    await file.writeAsString(sb.toString());
+    
+    debugPrint('Database exported to: ${file.path}');
+  }
+
+  // Original database operations (keeping all your existing methods)
   Future<int> insertWorkflow(Map<String, dynamic> workflow) async {
     final db = await database;
     return await db.insert(
@@ -444,7 +537,6 @@ class DatabaseHelper {
     }
   }
 
-  // Incident operations
   Future<int> insertIncident(Map<String, dynamic> incident) async {
     final db = await database;
     return await db.insert('incidents', incident);
@@ -589,14 +681,14 @@ class DatabaseHelper {
 
   Future<void> cleanupSyncedMultimedia() async {
     final db = await database;
-    const batchSize = 20;
+    const batchSize = 10;
     var totalDeleted = 0;
 
     while (true) {
       final batch = await db.query(
         'multimedia',
-        where: 'isSynced = ?',
-        whereArgs: [1],
+        where: 'isSynced = ? AND syncAttempts >= ?',
+        whereArgs: [1, 3],
         limit: batchSize,
       );
 
@@ -606,9 +698,12 @@ class DatabaseHelper {
         for (final media in batch) {
           try {
             final file = File(media['filePath'] as String);
-            if (await file.exists()) await file.delete();
+            if (await file.exists()) {
+              await file.delete();
+              debugPrint('🗑️ Deleted synced multimedia file: ${file.path}');
+            }
           } catch (e) {
-            debugPrint('Error deleting media file: $e');
+            debugPrint('❌ Error deleting media file: $e');
           }
           await txn.delete(
             'multimedia',
@@ -618,6 +713,8 @@ class DatabaseHelper {
           totalDeleted++;
         }
       });
+      
+      await Future.delayed(const Duration(milliseconds: 100));
     }
 
     debugPrint('🧹 Deleted $totalDeleted synced multimedia items');
@@ -638,6 +735,17 @@ class DatabaseHelper {
       limit: limit,
     );
   }
+
+
+Future<List<Map<String, dynamic>>> getPendingMultimediaByChecklist(String checklistId) async {
+  final db = await database;
+  return await db.query(
+    'multimedia',
+    where: 'checklistId = ? AND isSynced = 0',
+    whereArgs: [checklistId],
+    orderBy: 'createdAt ASC',
+  );
+}
 
   Future<List<Map<String, dynamic>>> getPendingChecklistsForWorkflow(String workflowId) async {
     final db = await database;
@@ -739,14 +847,14 @@ class DatabaseHelper {
 
   Future<void> cleanupSyncedSignatures() async {
     final db = await database;
-    const batchSize = 20;
+    const batchSize = 10;
     var totalDeleted = 0;
 
     while (true) {
       final batch = await db.query(
         'signatures',
-        where: 'isSynced = ?',
-        whereArgs: [1],
+        where: 'isSynced = ? AND syncAttempts >= ?',
+        whereArgs: [1, 3],
         limit: batchSize,
       );
 
@@ -756,9 +864,12 @@ class DatabaseHelper {
         for (final sig in batch) {
           try {
             final file = File(sig['filePath'] as String);
-            if (await file.exists()) await file.delete();
+            if (await file.exists()) {
+              await file.delete();
+              debugPrint('🗑️ Deleted synced signature file: ${file.path}');
+            }
           } catch (e) {
-            debugPrint('Error deleting signature file: $e');
+            debugPrint('❌ Error deleting signature file: $e');
           }
           await txn.delete(
             'signatures',
@@ -851,4 +962,51 @@ class DatabaseHelper {
     
     return result.map((row) => row['scheduledDate'] as String).toList();
   }
+
+
+  
+
+Future<void> cleanupDuplicateMultimedia() async {
+  final db = await database;
+  
+  final duplicates = await db.rawQuery('''
+    SELECT m1.id, m1.filePath, m1.checklistId, m1.mediaType
+    FROM multimedia m1
+    INNER JOIN (
+      SELECT checklistId, mediaType, filePath, MIN(id) as min_id
+      FROM multimedia 
+      WHERE isSynced = 0
+      GROUP BY checklistId, mediaType, filePath
+      HAVING COUNT(*) > 1
+    ) m2 ON m1.checklistId = m2.checklistId 
+    AND m1.mediaType = m2.mediaType 
+    AND m1.filePath = m2.filePath
+    AND m1.id != m2.min_id
+  ''');
+
+  debugPrint('🧹 Found ${duplicates.length} duplicate multimedia entries');
+
+  for (final duplicate in duplicates) {
+    await db.delete(
+      'multimedia',
+      where: 'id = ?',
+      whereArgs: [duplicate['id']],
+    );
+    debugPrint('🗑️ Deleted duplicate multimedia: ${duplicate['filePath']}');
+  }
+}
+
+Future<bool> hasPendingMultimediaForChecklist(String checklistId) async {
+  final db = await database;
+  
+  await cleanupDuplicateMultimedia();
+  
+  final result = await db.rawQuery(
+    'SELECT 1 FROM multimedia WHERE checklistId = ? AND isSynced = 0 LIMIT 1',
+    [checklistId],
+  );
+  return result.isNotEmpty;
+}
+
+ 
 }

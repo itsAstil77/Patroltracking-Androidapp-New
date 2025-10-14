@@ -1,3 +1,4 @@
+
 import 'package:workmanager/workmanager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:patroltracking/services/sync_service.dart';
@@ -18,7 +19,7 @@ void callbackDispatcher() {
           dbHelper: DatabaseHelper(),
           connectivity: Connectivity(),
           apiService: ApiService(),
-          prefs: prefs,
+          prefs: prefs, // UNCOMMENTED this line
         );
         
         await syncService.syncPendingData();

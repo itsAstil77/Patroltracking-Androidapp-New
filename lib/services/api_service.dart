@@ -546,45 +546,108 @@ static Future<List<Map<String, dynamic>>> fetchWorkflowPatrolChecklists({
   }
 }
 
- Future<http.Response> uploadMultimedia({
-    required String token,
-    required String checklistId,
-    required File mediaFile,
-    required String mediaType,
-    required String description,
-    required String patrolId,
-    required String createdBy,
-    required double latitude,
-    required double longitude,
-  }) async {
-    try {
-      final uri = Uri.parse('$_baseUrl/media');
-      final request = http.MultipartRequest('POST', uri);
-      request.headers['Authorization'] = 'Bearer $token';
+Future<http.Response> uploadMultimedia({
+  required String token,
+  required String checklistId,
+  required File mediaFile,
+  required String mediaType,
+  required String description,
+  required String patrolId,
+  required String createdBy,
+  required double latitude,
+  required double longitude,
+  required
+}) async {
+  try {
+    final uri = Uri.parse('$_baseUrl/media');
+    final request = http.MultipartRequest('POST', uri);
+    request.headers['Authorization'] = 'Bearer $token';
 
-      final mimeType = lookupMimeType(mediaFile.path)?.split('/');
-      if (mimeType == null) throw Exception("Unknown mime type");
+    final mimeType = lookupMimeType(mediaFile.path)?.split('/');
+    if (mimeType == null) throw Exception("Unknown mime type");
 
-      request.fields['checklistId'] = checklistId;
-      request.fields['mediaType'] = mediaType;
-      request.fields['description'] = description;
-      request.fields['userId'] = patrolId;
-      request.fields['createdBy'] = createdBy;
-      request.fields['coordinates'] = '$latitude,$longitude';
+    request.fields['checklistId'] = checklistId;
+    request.fields['mediaType'] = mediaType;
+    request.fields['description'] = description;
+    request.fields['userId'] = patrolId;
+    request.fields['createdBy'] = createdBy;
+    request.fields['coordinates'] = '$latitude,$longitude';
 
-      request.files.add(await http.MultipartFile.fromPath(
-        'mediaFile',
-        mediaFile.path,
-        contentType: MediaType(mimeType[0], mimeType[1]),
-      ));
+    request.files.add(await http.MultipartFile.fromPath(
+      'mediaFile',
+      mediaFile.path,
+      contentType: MediaType(mimeType[0], mimeType[1]),
+    ));
 
-      final streamedResponse = await request.send();
-      return await http.Response.fromStream(streamedResponse);
-    } catch (e) {
-      debugPrint('Error in uploadMultimedia: $e');
-      rethrow;
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    
+    debugPrint('Upload response status: ${response.statusCode}');
+    if (response.statusCode == 409) {
+      debugPrint('Duplicate multimedia detected by server');
     }
+    
+    return response;
+  } catch (e) {
+    debugPrint('Error in uploadMultimedia: $e');
+    rethrow;
   }
+}
+
+static Future<Map<String, dynamic>> checkMultimediaStatus({
+  required String checklistId,
+  required String token,
+}) async {
+  final url = Uri.parse('$_baseUrl/media/check-status/$checklistId');
+  
+  try {
+    final response = await http.get(
+      url,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      debugPrint('Failed to check multimedia status: ${response.statusCode}');
+      return {'hasMultimedia': false, 'count': 0, 'types': []};
+    }
+  } catch (e) {
+    debugPrint('Error checking multimedia status: $e');
+    return {'hasMultimedia': false, 'count': 0, 'types': []};
+  }
+}
+
+static Future<Map<String, dynamic>> cleanupDuplicateMultimedia({
+  required String token,
+}) async {
+  final url = Uri.parse('$_baseUrl/media/cleanup-duplicates');
+  
+  try {
+    final response = await http.delete(
+      url,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      debugPrint('Failed to cleanup duplicates: ${response.statusCode}');
+      throw Exception('Cleanup failed: ${response.body}');
+    }
+  } catch (e) {
+    debugPrint('Error cleaning up duplicates: $e');
+    rethrow;
+  }
+}
+
+
 
   Future<http.Response> uploadSignature({
     required File signatureFile,
