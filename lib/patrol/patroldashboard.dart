@@ -521,16 +521,16 @@ Widget build(BuildContext context) {
         title: Text('Patrol Dashboard', style: AppConstants.headingStyle),
         actions: [
           // Add debug button to app bar actions
-          IconButton(
-            icon: const Icon(Icons.bug_report, color: AppConstants.primaryColor),
-            onPressed: () {
-              DatabaseHelper().printAllData();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Database printed to console')),
-              );
-            },
-            tooltip: 'Debug Database',
-          ),
+          // IconButton(
+          //   icon: const Icon(Icons.bug_report, color: AppConstants.primaryColor),
+          //   onPressed: () {
+          //     DatabaseHelper().printAllData();
+          //     ScaffoldMessenger.of(context).showSnackBar(
+          //       const SnackBar(content: Text('Database printed to console')),
+          //     );
+          //   },
+          //   tooltip: 'Debug Database',
+          // ),
           IconButton(
             icon: const Icon(Icons.calendar_today, color: AppConstants.primaryColor),
             onPressed: _selectDate,
@@ -565,17 +565,16 @@ Widget build(BuildContext context) {
         ],
       ),
       drawer: CustomDrawer(userdata: widget.userdata, token: widget.token),
-      // Add floating action button for database debugging
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          DatabaseHelper().printAllData();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Database printed to console')),
-          );
-        },
-        backgroundColor: AppConstants.primaryColor,
-        child: const Icon(Icons.bug_report, color: Colors.white),
-      ),
+      // floatingActionButton: FloatingActionButton(
+      //   onPressed: () {
+      //     DatabaseHelper().printAllData();
+      //     ScaffoldMessenger.of(context).showSnackBar(
+      //       const SnackBar(content: Text('Database printed to console')),
+      //     );
+      //   },
+      //   backgroundColor: AppConstants.primaryColor,
+      //   child: const Icon(Icons.bug_report, color: Colors.white),
+      // ),
       body: Column(
         children: [
           Container(

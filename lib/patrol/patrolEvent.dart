@@ -792,7 +792,7 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
                     child: TextField(
                       controller: _searchController,
                       decoration: InputDecoration(
-                        labelText: "Search Checklist",
+                        labelText: "Search Task",
                         prefixIcon: Icon(Icons.search,
                             color: AppConstants.primaryColor),
                         border: const OutlineInputBorder(),
@@ -806,7 +806,7 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
                         : _filteredChecklists.isEmpty
                             ? Center(
                                 child: Text(
-                                  "No matching checklists found",
+                                  "No matching Task found",
                                   style: AppConstants.normalPurpleFontStyle,
                                 ),
                               )
@@ -825,7 +825,7 @@ class _PatrolEventCheckScreenState extends State<PatrolEventCheckScreen> {
                       child: ElevatedButton.icon(
                         icon: Icon(Icons.send, color: AppConstants.primaryColor),
                         label: Text(
-                          "Submit Checklists",
+                          "Submit Task",
                           style: AppConstants.selectedButtonFontStyle,
                         ),
                         onPressed: _sendChecklists,

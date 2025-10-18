@@ -9,10 +9,6 @@ import 'package:patroltracking/services/database_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crypto/crypto.dart'; 
 
-
-
-
-
 class SyncService {
   final DatabaseHelper _dbHelper;
   final Connectivity _connectivity;
@@ -69,7 +65,7 @@ class SyncService {
       await _syncChecklists(token);
       await _syncIncidents(token);
       await _syncSOS(token);
-      await _syncMultimedia(token);  // FIXED: Now with deduplication
+      await _syncMultimedia(token); 
       await _syncSignatures(token);
 
       await _dbHelper.cleanupSyncedMultimedia();
@@ -86,7 +82,6 @@ class SyncService {
   final pending = await _dbHelper.getPendingMultimedia();
   debugPrint('🔄 Syncing ${pending.length} multimedia items...');
   
-  // FIXED: Enhanced duplicate detection with file content checking
   final uniqueItems = await _removeDuplicateMultimedia(pending);
   debugPrint('📊 After deduplication: ${uniqueItems.length} unique items to upload');
 
@@ -101,7 +96,6 @@ class SyncService {
   await Future.wait(futures, eagerError: false);
 }
 
-// FIXED: Enhanced duplicate removal based on actual file content
 Future<List<Map<String, dynamic>>> _removeDuplicateMultimedia(
   List<Map<String, dynamic>> pendingItems,
 ) async {
@@ -119,19 +113,16 @@ Future<List<Map<String, dynamic>>> _removeDuplicateMultimedia(
         continue;
       }
 
-      // Generate file hash for content-based duplicate detection
       final fileBytes = await file.readAsBytes();
       final fileHash = _generateFileHash(fileBytes);
       final fileSize = fileBytes.length;
 
-      // Create unique key: checklistId + fileHash + fileSize
       final uniqueKey = '${item['checklistId']}_${item['mediaType']}_$fileHash';
       
       if (!seenFileHashes.contains(uniqueKey)) {
         uniqueItems[item['id'].toString()] = item;
         seenFileHashes.add(uniqueKey);
         
-        // Mark potential duplicates for cleanup
         for (final existingItem in pendingItems) {
           if (existingItem['id'] != item['id']) {
             final existingFilePath = existingItem['filePath'] as String;
@@ -180,14 +171,12 @@ String _generateFileHash(Uint8List bytes) {
           return;
         }
 
-        // FIXED: Check if already synced using local database flag
         if (item['isSynced'] == 1) {
           debugPrint('⏭️ Multimedia ${item['id']} already marked as synced - skipping');
           return;
         }
 
-        // REMOVED: Server-side duplicate check that was preventing multiple files of same type
-        // The backend will handle true duplicates via the 409 response
+        
 
         final response = await _apiService.uploadMultimedia(
           token: token,
@@ -204,7 +193,6 @@ String _generateFileHash(Uint8List bytes) {
         if (response.statusCode == 200) {
           await _dbHelper.updateMultimediaSyncStatus(item['id'], isSuccess: true);
           
-          // FIXED: Update checklist multimedia flag immediately after successful upload
           await _dbHelper.update(
             table: 'checklists',
             values: {
@@ -217,7 +205,6 @@ String _generateFileHash(Uint8List bytes) {
           
           debugPrint('✅ Successfully synced multimedia ${item['id']} (${item['mediaType']})');
         } else if (response.statusCode == 409) {
-          // FIXED: Handle duplicate response from server (true duplicate, not just same type)
           debugPrint('⚠️ Multimedia ${item['id']} already exists on server - marking as synced');
           await _dbHelper.updateMultimediaSyncStatus(item['id'], isSuccess: true);
         } else {
@@ -233,7 +220,6 @@ String _generateFileHash(Uint8List bytes) {
     }
   }
 
-  // FIXED: Enhanced method to check if multimedia already uploaded
   Future<bool> _checkMultimediaAlreadyUploaded(String checklistId, String mediaType) async {
     // First check local database
     final db = await _dbHelper.database;
@@ -249,7 +235,6 @@ String _generateFileHash(Uint8List bytes) {
       return true;
     }
     
-    // If online, also check server
     try {
       final token = _prefs.getString('auth_token');
       if (token != null) {
@@ -273,7 +258,6 @@ String _generateFileHash(Uint8List bytes) {
     return false;
   }
 
-  // Keep all other existing methods unchanged...
   Future<void> _syncWorkflows(String token) async {
     final pending = await _dbHelper.getPendingWorkflows();
     debugPrint('🔄 Syncing ${pending.length} workflows...');

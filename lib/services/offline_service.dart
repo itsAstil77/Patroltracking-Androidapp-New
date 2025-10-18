@@ -50,7 +50,7 @@ class OfflineService {
               'locationCode': locationCode,
               'scheduledDate': workflow.scheduledDate,
               'isActive': checklist.isActive ? 1 : 0,
-              'multimediaUploaded': 0, // Initialize as 0
+              'multimediaUploaded': 0, 
               'isSynced': 1,
               'isOffline': 0,
               'createdAt': DateTime.now().toUtc().toIso8601String(),
@@ -83,7 +83,6 @@ class OfflineService {
     final List<EventChecklistGroup> workflows = [];
     
     for (var workflowMap in workflowMaps) {
-      // Get checklists for this workflow and scheduled date
       final checklists = await getOfflineChecklistsForSchedule(
         workflowMap['workflowId'], 
         workflowMap['scheduledDate']

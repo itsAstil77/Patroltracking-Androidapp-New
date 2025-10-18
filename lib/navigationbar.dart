@@ -7,7 +7,6 @@ import 'package:patroltracking/patrol/patrolMultimediaScreen.dart';
 import 'package:patroltracking/patrol/patroldashboard.dart';
 import 'package:patroltracking/profile.dart';
 import 'package:patroltracking/settings.dart';
-import 'package:patroltracking/services/database_inspector_screen.dart';
 
 class CustomDrawer extends StatelessWidget {
   final Map<String, dynamic> userdata;
@@ -70,7 +69,7 @@ class CustomDrawer extends StatelessWidget {
               ProfileScreen(user: userdata, mode: '', token: token),
             );
           }),
-          _buildDrawerItem(context, Icons.event_available, 'Workflows', () {
+          _buildDrawerItem(context, Icons.event_available, 'Assignments', () {
             _safeNavigate(
               context,
               WorkflowScreen(userdata: userdata, token: token),
@@ -83,15 +82,15 @@ class CustomDrawer extends StatelessWidget {
             );
           }),
           // Add Database Inspector to drawer
-          _buildDrawerItem(context, Icons.storage, 'Database Inspector', () {
-            _safeNavigate(
-              context,
-              DatabaseInspectorScreen(
-                token: token,
-                userdata: userdata,
-              ),
-            );
-          }),
+          // _buildDrawerItem(context, Icons.storage, 'Database Inspector', () {
+          //   _safeNavigate(
+          //     context,
+          //     DatabaseInspectorScreen(
+          //       token: token,
+          //       userdata: userdata,
+          //     ),
+          //   );
+          // }),
           _buildDrawerItem(context, Icons.power_settings_new_outlined, 'Logout',
               () {
             _showLogoutConfirmationDialog(context);
