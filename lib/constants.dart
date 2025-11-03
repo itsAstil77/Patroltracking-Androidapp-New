@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class AppConstants {
-  static const String baseUrl = 'http://172.16.100.68:5000';
+  static const String baseUrl = 'http://172.16.100.18:5000';
 
   static String fontFamily = 'RedHatDisplay';
 
