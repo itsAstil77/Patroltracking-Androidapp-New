@@ -1,5 +1,4 @@
-
-import 'dart:async'; 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -49,8 +48,6 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
     BackgroundSync.initialize();
   }
 
-  
-
   @override
   void dispose() {
     _locationTimer?.cancel();
@@ -59,10 +56,11 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
   }
 
   Future<void> _initializeConnectivity() async {
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) async {
+    _connectivitySubscription =
+        Connectivity().onConnectivityChanged.listen((result) async {
       final isOnline = result != ConnectivityResult.none;
       setState(() => _isOnline = isOnline);
-      
+
       if (isOnline) {
         await SyncService(
           dbHelper: DatabaseHelper(),
@@ -75,8 +73,9 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
         await _loadOfflineData();
       }
     });
-    
-    _isOnline = await Connectivity().checkConnectivity() != ConnectivityResult.none;
+
+    _isOnline =
+        await Connectivity().checkConnectivity() != ConnectivityResult.none;
   }
 
   Future<void> _initializeDashboard() async {
@@ -90,48 +89,79 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
 
   Future<void> _loadOnlineData() async {
     try {
-      final formattedDate = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-      
+      final formattedDate =
+          '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+
       debugPrint('Loading data for date: $formattedDate');
-      
+
       final events = await ApiService.fetchGroupedChecklists(
         widget.userdata['userId'],
         widget.token,
-        scheduledDate: formattedDate, 
+        scheduledDate: formattedDate,
       );
-      
+
       debugPrint('Received ${events.length} workflows from API');
       for (var event in events) {
-        debugPrint('- ${event.workflowTitle} (${event.status}) - scheduledDate: ${event.scheduledDate} - checklists: ${event.checklists.length}');
+        debugPrint(
+            '- ${event.workflowTitle} (${event.status}) - scheduledDate: ${event.scheduledDate} - checklists: ${event.checklists.length}');
       }
-      
+
+      // final offlineService = OfflineService(DatabaseHelper());
+      // await offlineService.cacheWorkflows(events, widget.userdata['userId']);
       final offlineService = OfflineService(DatabaseHelper());
+      final db = await DatabaseHelper().database;
+
+// 🧠 Get current local workflow IDs
+      final localWorkflows = await db.query('workflows');
+      final localIds = localWorkflows.map((w) => w['workflowId']).toSet();
+
+// 🌐 Get workflow IDs from MongoDB (server)
+      final serverIds = events.map((e) => e.workflowId).toSet();
+
+// 🧹 Delete local entries missing from server
+      for (var localId in localIds) {
+        if (!serverIds.contains(localId)) {
+          await db.delete('workflows',
+              where: 'workflowId = ?', whereArgs: [localId]);
+          await db.delete('checklists',
+              where: 'workflowId = ?', whereArgs: [localId]);
+        }
+      }
+
+// 💾 Then cache/insert latest workflows
       await offlineService.cacheWorkflows(events, widget.userdata['userId']);
-      
+// till here
+
       _updateEventsList(events);
     } catch (e) {
       debugPrint('Error loading online data: $e');
       final offlineService = OfflineService(DatabaseHelper());
-      final formattedDate = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-      final allOfflineEvents = await offlineService.getOfflineWorkflows(widget.userdata['userId']);
-      
+      final formattedDate =
+          '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      final allOfflineEvents =
+          await offlineService.getOfflineWorkflows(widget.userdata['userId']);
+
       final filteredEvents = allOfflineEvents.where((event) {
         if (event.scheduledDate != null) {
           return event.scheduledDate == formattedDate;
         }
-        
+
         if (event.assignedStart != null && event.assignedEnd != null) {
           final selectedDate = DateTime.parse(formattedDate);
-          final startDate = DateTime(event.assignedStart!.year, event.assignedStart!.month, event.assignedStart!.day);
-          final endDate = DateTime(event.assignedEnd!.year, event.assignedEnd!.month, event.assignedEnd!.day);
-          
-          return (selectedDate.isAtSameMomentAs(startDate) || selectedDate.isAfter(startDate)) &&
-                 (selectedDate.isAtSameMomentAs(endDate) || selectedDate.isBefore(endDate));
+          final startDate = DateTime(event.assignedStart!.year,
+              event.assignedStart!.month, event.assignedStart!.day);
+          final endDate = DateTime(event.assignedEnd!.year,
+              event.assignedEnd!.month, event.assignedEnd!.day);
+
+          return (selectedDate.isAtSameMomentAs(startDate) ||
+                  selectedDate.isAfter(startDate)) &&
+              (selectedDate.isAtSameMomentAs(endDate) ||
+                  selectedDate.isBefore(endDate));
         }
-        
+
         return false;
       }).toList();
-      
+
       if (filteredEvents.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -139,36 +169,40 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
           );
         }
       }
-      
+
       _updateEventsList(filteredEvents);
     }
   }
 
-  List<EventChecklistGroup> _filterWorkflowsByDate(List<EventChecklistGroup> workflows, DateTime selectedDate) {
+  List<EventChecklistGroup> _filterWorkflowsByDate(
+      List<EventChecklistGroup> workflows, DateTime selectedDate) {
     return workflows.where((workflow) {
       if (workflow.scheduledDate != null) {
         return true;
       }
-      
+
       if (workflow.assignedStart != null && workflow.assignedEnd != null) {
-        final selectedDateOnly = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
-        final startDateOnly = DateTime(workflow.assignedStart!.year, workflow.assignedStart!.month, workflow.assignedStart!.day);
-        final endDateOnly = DateTime(workflow.assignedEnd!.year, workflow.assignedEnd!.month, workflow.assignedEnd!.day);
-        
-        final isInRange = (selectedDateOnly.isAtSameMomentAs(startDateOnly) || 
-                          selectedDateOnly.isAfter(startDateOnly)) && 
-                         (selectedDateOnly.isAtSameMomentAs(endDateOnly) || 
-                          selectedDateOnly.isBefore(endDateOnly));
-        
+        final selectedDateOnly =
+            DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+        final startDateOnly = DateTime(workflow.assignedStart!.year,
+            workflow.assignedStart!.month, workflow.assignedStart!.day);
+        final endDateOnly = DateTime(workflow.assignedEnd!.year,
+            workflow.assignedEnd!.month, workflow.assignedEnd!.day);
+
+        final isInRange = (selectedDateOnly.isAtSameMomentAs(startDateOnly) ||
+                selectedDateOnly.isAfter(startDateOnly)) &&
+            (selectedDateOnly.isAtSameMomentAs(endDateOnly) ||
+                selectedDateOnly.isBefore(endDateOnly));
+
         debugPrint('Ordinary workflow ${workflow.workflowTitle}:');
         debugPrint('  Selected: $selectedDateOnly');
         debugPrint('  Start: $startDateOnly');
         debugPrint('  End: $endDateOnly');
         debugPrint('  In range: $isInRange');
-        
+
         return isInRange;
       }
-      
+
       return true;
     }).toList();
   }
@@ -176,20 +210,21 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
   Future<void> _loadOfflineData() async {
     try {
       final offlineService = OfflineService(DatabaseHelper());
-      final formattedDate = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      final formattedDate =
+          '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
       final events = await offlineService.getOfflineWorkflows(
-        widget.userdata['userId'], 
-        scheduledDate: formattedDate
-      );
-      
+          widget.userdata['userId'],
+          scheduledDate: formattedDate);
+
       if (events.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("No offline data available for selected date")),
+            const SnackBar(
+                content: Text("No offline data available for selected date")),
           );
         }
       }
-      
+
       _updateEventsList(events);
     } catch (e) {
       if (mounted && _eventGroups.isEmpty) {
@@ -276,8 +311,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
     }
 
     return await Geolocator.getCurrentPosition(
-      desiredAccuracy: geo.LocationAccuracy.high
-    );
+        desiredAccuracy: geo.LocationAccuracy.high);
   }
 
   Future<void> _selectDate() async {
@@ -302,7 +336,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
       setState(() {
         _selectedDate = picked;
       });
-      
+
       if (_isOnline) {
         await _loadOnlineData();
       } else {
@@ -313,7 +347,8 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
 
   void _showStartPatrolPopup({required EventChecklistGroup event}) async {
     final offlineService = OfflineService(DatabaseHelper());
-    final workflows = await offlineService.getOfflineWorkflows(widget.userdata['userId']);
+    final workflows =
+        await offlineService.getOfflineWorkflows(widget.userdata['userId']);
     final workflow = workflows.firstWhere(
       (w) => w.workflowId == event.workflowId,
       orElse: () => EventChecklistGroup(
@@ -334,7 +369,8 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text("Start Patrol"),
-        content: Text("Do you want to start the assignment: ${event.workflowTitle}?"),
+        content: Text(
+            "Do you want to start the assignment: ${event.workflowTitle}?"),
         actions: [
           TextButton(
             onPressed: () async {
@@ -364,7 +400,9 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
                   );
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Started offline - will sync when online')),
+                      const SnackBar(
+                          content:
+                              Text('Started offline - will sync when online')),
                     );
                   }
                   _startTracking();
@@ -390,7 +428,8 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
   }
 
   void _navigateToPatrolEventCheckScreen(EventChecklistGroup event) {
-    Navigator.push( // Changed from pushReplacement
+    Navigator.push(
+      // Changed from pushReplacement
       context,
       MaterialPageRoute(
         builder: (context) => PatrolEventCheckScreen(
@@ -474,7 +513,8 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("SOS saved offline - will send when online")),
+            const SnackBar(
+                content: Text("SOS saved offline - will send when online")),
           );
         }
       }
@@ -486,278 +526,294 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
       }
     }
   }
-@override
-Widget build(BuildContext context) {
-  return WillPopScope(
-    onWillPop: () async {
-      // Show confirmation dialog when back button is pressed
-      final shouldExit = await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Confirm Exit'),
-          content: const Text('Are you sure you want to exit the app?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+
+  @override
+  Widget build(BuildContext context) {
+    return WillPopScope(
+      onWillPop: () async {
+        // Show confirmation dialog when back button is pressed
+        final shouldExit = await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Confirm Exit'),
+            content: const Text('Are you sure you want to exit the app?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Exit'),
+              ),
+            ],
+          ),
+        );
+        return shouldExit ?? false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.menu, color: AppConstants.primaryColor),
+              onPressed: () => Scaffold.of(context).openDrawer(),
             ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Exit'),
+          ),
+          title: Text('Patrol Dashboard', style: AppConstants.headingStyle),
+          actions: [
+            // Add debug button to app bar actions
+            // IconButton(
+            //   icon: const Icon(Icons.bug_report, color: AppConstants.primaryColor),
+            //   onPressed: () {
+            //     DatabaseHelper().printAllData();
+            //     ScaffoldMessenger.of(context).showSnackBar(
+            //       const SnackBar(content: Text('Database printed to console')),
+            //     );
+            //   },
+            //   tooltip: 'Debug Database',
+            // ),
+            IconButton(
+              icon: const Icon(Icons.calendar_today,
+                  color: AppConstants.primaryColor),
+              onPressed: _selectDate,
+              tooltip: 'Select Date',
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh, color: AppConstants.primaryColor),
+              tooltip: "Refresh Data",
+              onPressed: () async {
+                if (_isOnline) {
+                  await _loadOnlineData();
+                } else {
+                  await _loadOfflineData();
+                }
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Data refreshed")),
+                  );
+                }
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.sos, color: Colors.white),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: _showSOSPopup,
+            ),
+            if (!_isOnline)
+              const Padding(
+                padding: EdgeInsets.only(right: 8.0),
+                child: Icon(Icons.wifi_off, color: Colors.orange),
+              ),
+          ],
+        ),
+        drawer: CustomDrawer(userdata: widget.userdata, token: widget.token),
+        // floatingActionButton: FloatingActionButton(
+        //   onPressed: () {
+        //     DatabaseHelper().printAllData();
+        //     ScaffoldMessenger.of(context).showSnackBar(
+        //       const SnackBar(content: Text('Database printed to console')),
+        //     );
+        //   },
+        //   backgroundColor: AppConstants.primaryColor,
+        //   child: const Icon(Icons.bug_report, color: Colors.white),
+        // ),
+        body: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: AppConstants.primaryColor.withOpacity(0.1),
+              child: Row(
+                children: [
+                  Icon(Icons.calendar_today,
+                      size: 16, color: AppConstants.primaryColor),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Selected Date: ${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
+                    style: TextStyle(
+                      color: AppConstants.primaryColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const Spacer(),
+                  // TextButton(
+                  //   onPressed: _selectDate,
+                  //   child: Text(
+                  //     'Change Date',
+                  //     style: TextStyle(color: AppConstants.primaryColor),
+                  //   ),
+                  // ),
+                ],
+              ),
+            ),
+            if (!_isOnline)
+              Container(
+                padding: const EdgeInsets.all(8),
+                color: Colors.orange,
+                child: Row(
+                  children: const [
+                    Icon(Icons.wifi_off, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text(
+                      'Offline Mode - Data will sync when online',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              flex: 3,
+              child: _currentPosition == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : GoogleMap(
+                      onMapCreated: (controller) => _mapController = controller,
+                      initialCameraPosition: CameraPosition(
+                        target: _currentPosition!,
+                        zoom: 16.0,
+                      ),
+                      markers: {
+                        Marker(
+                          markerId: const MarkerId("currentLocation"),
+                          position: _currentPosition!,
+                          infoWindow: const InfoWindow(title: "Your Location"),
+                        ),
+                      },
+                      myLocationButtonEnabled: true,
+                      myLocationEnabled: true,
+                      mapType: MapType.terrain,
+                    ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Container(
+                padding: const EdgeInsets.all(8.0),
+                color: Colors.white,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Assigned assignment',
+                      style: AppConstants.headingStyle.copyWith(
+                        color: AppConstants.primaryColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: _eventGroups.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.assignment_outlined,
+                                      size: 48, color: Colors.grey[400]),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    "No assignment for selected date",
+                                    style: TextStyle(
+                                      color: AppConstants.primaryColor,
+                                    ),
+                                  ),
+                                  // TextButton(
+                                  //   onPressed: _selectDate,
+                                  //   child: const Text('Try Different Date'),
+                                  // ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: _eventGroups.length,
+                              itemBuilder: (context, index) {
+                                final event = _eventGroups[index];
+                                return Card(
+                                  elevation: 2,
+                                  margin: const EdgeInsets.symmetric(
+                                      vertical: 4, horizontal: 8),
+                                  child: ListTile(
+                                    title: Text(
+                                      event.workflowTitle,
+                                      style: AppConstants.boldPurpleFontStyle,
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          "Status: ${event.status}",
+                                          style: AppConstants
+                                              .normalPurpleFontStyle,
+                                        ),
+                                        if (event.scheduledDate != null)
+                                          Text(
+                                            "Date: ${event.scheduledDate}",
+                                            style: AppConstants
+                                                .normalPurpleFontStyle
+                                                .copyWith(
+                                              fontSize: 12,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
+                                        if (event.assignedStart != null &&
+                                            event.assignedEnd != null)
+                                          Text(
+                                            "Period: ${event.assignedStart!.day}/${event.assignedStart!.month}/${event.assignedStart!.year} - ${event.assignedEnd!.day}/${event.assignedEnd!.month}/${event.assignedEnd!.year}",
+                                            style: AppConstants
+                                                .normalPurpleFontStyle
+                                                .copyWith(
+                                              fontSize: 12,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    onTap: () async {
+                                      final db =
+                                          await DatabaseHelper().database;
+                                      final workflow = await db.query(
+                                        'workflows',
+                                        where: 'workflowId = ?',
+                                        whereArgs: [event.workflowId],
+                                        limit: 1,
+                                      );
+
+                                      final status = workflow.isNotEmpty
+                                          ? (workflow.first['status']
+                                                      as String?)
+                                                  ?.toLowerCase() ??
+                                              'unknown'
+                                          : event.status?.toLowerCase() ??
+                                              'unknown';
+
+                                      if (status == "pending") {
+                                        _showStartPatrolPopup(event: event);
+                                      } else if (status == "inprogress") {
+                                        _navigateToPatrolEventCheckScreen(
+                                            event);
+                                      } else if (status == "completed") {
+                                        _showCompletedWorkflowAlert();
+                                      } else {
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                                content: Text(
+                                                    "Unknown assignment status")),
+                                          );
+                                        }
+                                      }
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
-      );
-      return shouldExit ?? false;
-    },
-    child: Scaffold(
-      appBar: AppBar(
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu, color: AppConstants.primaryColor),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
-        title: Text('Patrol Dashboard', style: AppConstants.headingStyle),
-        actions: [
-          // Add debug button to app bar actions
-          // IconButton(
-          //   icon: const Icon(Icons.bug_report, color: AppConstants.primaryColor),
-          //   onPressed: () {
-          //     DatabaseHelper().printAllData();
-          //     ScaffoldMessenger.of(context).showSnackBar(
-          //       const SnackBar(content: Text('Database printed to console')),
-          //     );
-          //   },
-          //   tooltip: 'Debug Database',
-          // ),
-          IconButton(
-            icon: const Icon(Icons.calendar_today, color: AppConstants.primaryColor),
-            onPressed: _selectDate,
-            tooltip: 'Select Date',
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh, color: AppConstants.primaryColor),
-            tooltip: "Refresh Data",
-            onPressed: () async {
-              if (_isOnline) {
-                await _loadOnlineData();
-              } else {
-                await _loadOfflineData();
-              }
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Data refreshed")),
-                );
-              }
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.sos, color: Colors.white),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: _showSOSPopup,
-          ),
-          if (!_isOnline)
-            const Padding(
-              padding: EdgeInsets.only(right: 8.0),
-              child: Icon(Icons.wifi_off, color: Colors.orange),
-            ),
-        ],
       ),
-      drawer: CustomDrawer(userdata: widget.userdata, token: widget.token),
-      // floatingActionButton: FloatingActionButton(
-      //   onPressed: () {
-      //     DatabaseHelper().printAllData();
-      //     ScaffoldMessenger.of(context).showSnackBar(
-      //       const SnackBar(content: Text('Database printed to console')),
-      //     );
-      //   },
-      //   backgroundColor: AppConstants.primaryColor,
-      //   child: const Icon(Icons.bug_report, color: Colors.white),
-      // ),
-      body: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: AppConstants.primaryColor.withOpacity(0.1),
-            child: Row(
-              children: [
-                Icon(Icons.calendar_today, 
-                     size: 16, 
-                     color: AppConstants.primaryColor),
-                const SizedBox(width: 8),
-                Text(
-                  'Selected Date: ${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
-                  style: TextStyle(
-                    color: AppConstants.primaryColor,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const Spacer(),
-                TextButton(
-                  onPressed: _selectDate,
-                  child: Text(
-                    'Change Date',
-                    style: TextStyle(color: AppConstants.primaryColor),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          if (!_isOnline)
-            Container(
-              padding: const EdgeInsets.all(8),
-              color: Colors.orange,
-              child: Row(
-                children: const [
-                  Icon(Icons.wifi_off, color: Colors.white),
-                  SizedBox(width: 8),
-                  Text(
-                    'Offline Mode - Data will sync when online',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ],
-              ),
-            ),
-          Expanded(
-            flex: 3,
-            child: _currentPosition == null
-                ? const Center(child: CircularProgressIndicator())
-                : GoogleMap(
-                    onMapCreated: (controller) => _mapController = controller,
-                    initialCameraPosition: CameraPosition(
-                      target: _currentPosition!,
-                      zoom: 16.0,
-                    ),
-                    markers: {
-                      Marker(
-                        markerId: const MarkerId("currentLocation"),
-                        position: _currentPosition!,
-                        infoWindow: const InfoWindow(title: "Your Location"),
-                      ),
-                    },
-                    myLocationButtonEnabled: true,
-                    myLocationEnabled: true,
-                    mapType: MapType.terrain,
-                  ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Container(
-              padding: const EdgeInsets.all(8.0),
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Assigned assignment',
-                    style: AppConstants.headingStyle.copyWith(
-                      color: AppConstants.primaryColor,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: _eventGroups.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.assignment_outlined, 
-                                     size: 48, 
-                                     color: Colors.grey[400]),
-                                const SizedBox(height: 8),
-                                Text(
-                                  "No assignment for selected date",
-                                  style: TextStyle(
-                                    color: AppConstants.primaryColor,
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: _selectDate,
-                                  child: const Text('Try Different Date'),
-                                ),
-                              ],
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: _eventGroups.length,
-                            itemBuilder: (context, index) {
-                              final event = _eventGroups[index];
-                              return Card(
-                                elevation: 2,
-                                margin: const EdgeInsets.symmetric(
-                                    vertical: 4, horizontal: 8),
-                                child: ListTile(
-                                  title: Text(
-                                    event.workflowTitle,
-                                    style: AppConstants.boldPurpleFontStyle,
-                                  ),
-                                  subtitle: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        "Status: ${event.status}",
-                                        style: AppConstants.normalPurpleFontStyle,
-                                      ),
-                                      if (event.scheduledDate != null)
-                                        Text(
-                                          "Date: ${event.scheduledDate}",
-                                          style: AppConstants.normalPurpleFontStyle.copyWith(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      if (event.assignedStart != null && event.assignedEnd != null)
-                                        Text(
-                                          "Period: ${event.assignedStart!.day}/${event.assignedStart!.month}/${event.assignedStart!.year} - ${event.assignedEnd!.day}/${event.assignedEnd!.month}/${event.assignedEnd!.year}",
-                                          style: AppConstants.normalPurpleFontStyle.copyWith(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  onTap: () async {
-                                    final db = await DatabaseHelper().database;
-                                    final workflow = await db.query(
-                                      'workflows',
-                                      where: 'workflowId = ?',
-                                      whereArgs: [event.workflowId],
-                                      limit: 1,
-                                    );
-
-                                    final status = workflow.isNotEmpty
-                                        ? (workflow.first['status'] as String?)?.toLowerCase() ?? 'unknown'
-                                        : event.status?.toLowerCase() ?? 'unknown';
-
-                                    if (status == "pending") {
-                                      _showStartPatrolPopup(event: event);
-                                    } else if (status == "inprogress") {
-                                      _navigateToPatrolEventCheckScreen(event);
-                                    } else if (status == "completed") {
-                                      _showCompletedWorkflowAlert();
-                                    } else {
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text("Unknown assignment status")),
-                                        );
-                                      }
-                                    }
-                                  },
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-}}
+    );
+  }
+}
